@@ -4,44 +4,55 @@ const mem = std.mem;
 input: []const u8,
 allocator: mem.Allocator,
 
-const Input = struct {
+const Lists = struct {
+    const Self = @This();
+
     left: []u32,
     right: []u32,
-};
+    allocator: mem.Allocator,
 
-fn parse(this: *const @This()) !*Input {
-    var lines = std.mem.splitScalar(u8, this.input, '\n');
-    var left = std.ArrayList(u32).init(this.allocator);
-    defer left.deinit();
-    var right = std.ArrayList(u32).init(this.allocator);
-    defer right.deinit();
-    while (lines.next()) |line| {
-        if (line.len == 0) continue;
-        var tokens = std.mem.splitSequence(u8, line, "   ");
-        if (tokens.next()) |token| {
-            try left.append(try std.fmt.parseInt(u32, token, 10));
-        }
-        if (tokens.next()) |token| {
-            try right.append(try std.fmt.parseInt(u32, token, 10));
-        }
+    fn init(allocator: mem.Allocator, left: []u32, right: []u32) Self {
+        return Self{
+            .left = left,
+            .right = right,
+            .allocator = allocator,
+        };
     }
 
-    const leftSlice = try left.toOwnedSlice();
-    const rightSlice = try right.toOwnedSlice();
-    std.mem.sort(u32, leftSlice, {}, comptime std.sort.asc(u32));
-    std.mem.sort(u32, rightSlice, {}, comptime std.sort.asc(u32));
-    const parsed = try this.allocator.create(Input);
-    parsed.left = leftSlice;
-    parsed.right = rightSlice;
-    return parsed;
-}
+    fn fromInput(allocator: mem.Allocator, input: []const u8) !Self {
+        var lines = std.mem.splitScalar(u8, input, '\n');
+        var left = std.ArrayList(u32).init(allocator);
+        defer left.deinit();
+        var right = std.ArrayList(u32).init(allocator);
+        defer right.deinit();
+        while (lines.next()) |line| {
+            if (line.len == 0) continue;
+            var tokens = std.mem.splitSequence(u8, line, "   ");
+            if (tokens.next()) |token| {
+                try left.append(try std.fmt.parseInt(u32, token, 10));
+            }
+            if (tokens.next()) |token| {
+                try right.append(try std.fmt.parseInt(u32, token, 10));
+            }
+        }
+
+        const leftSlice = try left.toOwnedSlice();
+        const rightSlice = try right.toOwnedSlice();
+        std.mem.sort(u32, leftSlice, {}, comptime std.sort.asc(u32));
+        std.mem.sort(u32, rightSlice, {}, comptime std.sort.asc(u32));
+        return Self.init(allocator, leftSlice, rightSlice);
+    }
+
+    fn deinit(self: Self) void {
+        self.allocator.free(self.left);
+        self.allocator.free(self.right);
+    }
+};
 
 pub fn part1(this: *const @This()) !?i64 {
     var result: u32 = 0;
-    const lists = try parse(this);
-    defer this.allocator.free(lists.left);
-    defer this.allocator.free(lists.right);
-    defer this.allocator.destroy(lists);
+    const lists = try Lists.fromInput(this.allocator, this.input);
+    defer lists.deinit();
 
     var i: usize = 0;
     while (i < lists.left.len and i < lists.right.len) : (i += 1) {
@@ -52,10 +63,8 @@ pub fn part1(this: *const @This()) !?i64 {
 
 pub fn part2(this: *const @This()) !?i64 {
     var result: u32 = 0;
-    const lists = try parse(this);
-    defer this.allocator.free(lists.left);
-    defer this.allocator.free(lists.right);
-    defer this.allocator.destroy(lists);
+    const lists = try Lists.fromInput(this.allocator, this.input);
+    defer lists.deinit();
 
     var i: usize = 0;
     var j: usize = 0;
