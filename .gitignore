@@ -5,6 +5,7 @@
 # Zig programming language
 
 .env
+.envrc
 .zig-cache/
 zig-out/
 input/
