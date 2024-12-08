@@ -154,6 +154,26 @@ pub fn build(b: *Build) !void {
         .target = target,
         .optimize = optimize,
     });
+    exe_unit_tests.root_module.addAnonymousImport(
+        "input",
+        .{
+            .root_source_file = b.path(
+                try fs.path.join(
+                    b.allocator,
+                    &[_][]const u8{
+                        INPUT_DIR,
+                        YEAR,
+                        try fmt.allocPrint(
+                            b.allocator,
+                            "day{s}.txt",
+                            .{DAY},
+                        ),
+                    },
+                ),
+            ),
+        },
+    );
+
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
