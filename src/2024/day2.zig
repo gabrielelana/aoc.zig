@@ -69,17 +69,16 @@ pub fn part2(this: *const @This()) !?i64 {
 }
 
 // TODO: can I run the test with the actual input???
-// test "it should work" {
+// test "it shall pass" {
 //     const allocator = std.testing.allocator;
 
 //     const problem: @This() = .{
-//         TODO: why I cannot do something like this?
-//         .input = @import("input"),
+//         .input = @embedFile("input"),
 //         .allocator = allocator,
 //     };
 
 //     try std.testing.expectEqual(534, try problem.part1());
-//     try std.testing.expectEqual(null, try problem.part2());
+//     try std.testing.expectEqual(577, try problem.part2());
 // }
 
 test "it should work with small example" {
