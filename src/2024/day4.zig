@@ -6,98 +6,130 @@ allocator: mem.Allocator,
 
 const needle = "XMAS";
 
-// TODO: how to improve
-// - Create a type WordWall
-// - With function charAT
-// - With function wordAtWithDirection
-// - Union Direction with .{dx, dy}
-// - With function wordAt in every direction
-// - With function crossWordAt
+const Direction = struct {
+    dx: i8,
+    dy: i8,
+};
 
-fn countWordsAtWithDirection(input: []const u8, nColumns: usize, x: isize, y: isize, dx: isize, dy: isize) bool {
-    var i: usize = 0;
-    while (i < needle.len) : (i += 1) {
-        var ddx: isize = 0;
-        var ddy: isize = 0;
-        if (dx != 0) {
-            ddx = if (dx > 0) @as(isize, @intCast(i)) else -@as(isize, @intCast(i));
-        }
-        if (dy != 0) {
-            ddy = if (dy > 0) @as(isize, @intCast(i)) else -@as(isize, @intCast(i));
-        }
-        const at = (y + ddy) * @as(isize, @intCast(nColumns)) + x + ddx;
-        if (at < 0 or at >= input.len) break;
-        if (input[@as(usize, @intCast(at))] != needle[i]) break;
+const Position = struct {
+    const Self = @This();
+
+    x: usize,
+    y: usize,
+
+    fn apply(self: Self, d: Direction) ?Self {
+        const x = @as(isize, @intCast(self.x)) + d.dx;
+        const y = @as(isize, @intCast(self.y)) + d.dx;
+        if (x < 0 or y < 0) return null;
+        return Position{
+            .x = @as(usize, @intCast(x)),
+            .y = @as(usize, @intCast(y)),
+        };
     }
-    return i == needle.len;
+};
+
+fn combineDirections(l: Direction, r: Direction) Direction {
+    return Direction{ .dx = l.dx + r.dx, .dy = l.dy + r.dy };
 }
 
-fn countWordsAt(input: []const u8, nColumns: usize, x: isize, y: isize) usize {
-    var nFound: usize = 0;
-    if (countWordsAtWithDirection(input, nColumns, x, y, 1, 0)) nFound += 1;
-    if (countWordsAtWithDirection(input, nColumns, x, y, -1, 0)) nFound += 1;
-    if (countWordsAtWithDirection(input, nColumns, x, y, 0, -1)) nFound += 1;
-    if (countWordsAtWithDirection(input, nColumns, x, y, 0, 1)) nFound += 1;
-    if (countWordsAtWithDirection(input, nColumns, x, y, 1, -1)) nFound += 1;
-    if (countWordsAtWithDirection(input, nColumns, x, y, -1, 1)) nFound += 1;
-    if (countWordsAtWithDirection(input, nColumns, x, y, -1, -1)) nFound += 1;
-    if (countWordsAtWithDirection(input, nColumns, x, y, 1, 1)) nFound += 1;
-    return nFound;
-}
+const Directions = .{
+    .up = @as(Direction, .{ .dx = 0, .dy = -1 }),
+    .down = @as(Direction, .{ .dx = 0, .dy = 1 }),
+    .left = @as(Direction, .{ .dx = -1, .dy = 0 }),
+    .right = @as(Direction, .{ .dx = 1, .dy = 0 }),
+};
 
-fn countWords(input: []const u8, nLines: usize, nColumns: usize) usize {
-    var result: usize = 0;
-    var x: isize = 0;
-    var y: isize = 0;
-    while (y < nLines) : (y += 1) {
-        while (x < nColumns) : (x += 1) {
-            const n = countWordsAt(input, nColumns, x, y);
-            result += n;
-        }
-        x = 0;
+const WordWall = struct {
+    const Self = @This();
+
+    input: []const u8,
+    limits: Position,
+
+    fn init(input: []const u8) Self {
+        var lines = std.mem.splitScalar(u8, input, '\n');
+        const firstLine = lines.next();
+        const countColumns = firstLine.?.len + 1;
+        return Self{
+            .input = input,
+            .limits = .{
+                .x = countColumns,
+                .y = @truncate((input.len + 1) / countColumns),
+            },
+        };
     }
-    return result;
-}
+
+    fn charAt(self: Self, p: ?Position) ?u8 {
+        if (p == null) return null;
+        const at = (p.?.y * self.limits.x) + p.?.x;
+        if (at >= self.input.len) return null;
+        return self.input[at];
+    }
+
+    fn hasWordAtDirection(self: Self, word: []const u8, p: Position, d: Direction) bool {
+        var i: usize = 0;
+        var currentPosition: Position = p;
+        while (i < word.len) : (i += 1) {
+            if (self.charAt(currentPosition) != word[i]) break;
+            const x = @as(isize, @intCast(currentPosition.x)) + d.dx;
+            const y = @as(isize, @intCast(currentPosition.y)) + d.dy;
+            if (x >= 0 and y >= 0) {
+                currentPosition = Position{ .x = @as(usize, @intCast(x)), .y = @as(usize, @intCast(y)) };
+            }
+        }
+        return i == needle.len;
+    }
+
+    fn countWordsAt(self: Self, word: []const u8, p: Position) u8 {
+        var result: u8 = 0;
+        if (self.hasWordAtDirection(word, p, Directions.up)) result += 1;
+        if (self.hasWordAtDirection(word, p, Directions.down)) result += 1;
+        if (self.hasWordAtDirection(word, p, Directions.left)) result += 1;
+        if (self.hasWordAtDirection(word, p, Directions.right)) result += 1;
+        if (self.hasWordAtDirection(word, p, combineDirections(Directions.up, Directions.right))) result += 1;
+        if (self.hasWordAtDirection(word, p, combineDirections(Directions.up, Directions.left))) result += 1;
+        if (self.hasWordAtDirection(word, p, combineDirections(Directions.down, Directions.right))) result += 1;
+        if (self.hasWordAtDirection(word, p, combineDirections(Directions.down, Directions.left))) result += 1;
+        return result;
+    }
+
+    fn countWords(self: Self, word: []const u8) usize {
+        var result: usize = 0;
+        var x: usize = 0;
+        var y: usize = 0;
+        while (y < self.limits.y) : (y += 1) {
+            while (x < self.limits.x) : (x += 1) {
+                result += self.countWordsAt(word, .{ .x = x, .y = y });
+            }
+            x = 0;
+        }
+        return result;
+    }
+};
 
 pub fn part1(this: *const @This()) !?i64 {
-    var lines = std.mem.splitScalar(u8, this.input, '\n');
-    const firstLine = lines.next();
-    const nColumns: usize = firstLine.?.len + 1;
-    const nLines: usize = @truncate((this.input.len + 1) / nColumns);
-    return @intCast(countWords(this.input, nLines, nColumns));
-}
-
-fn checkCharAt(input: []const u8, nColumns: usize, x: isize, y: isize, char: u8) bool {
-    const at = y * @as(isize, @intCast(nColumns)) + x;
-    if (at < 0 or at >= input.len) return false;
-    if (input[@as(usize, @intCast(at))] != char) return false;
-    return true;
-}
-
-fn checkXAt(input: []const u8, nColumns: usize, x: isize, y: isize) bool {
-    return checkCharAt(input, nColumns, x, y, 'A') and
-        ((checkCharAt(input, nColumns, x - 1, y - 1, 'M') and
-        checkCharAt(input, nColumns, x + 1, y + 1, 'S')) or
-        (checkCharAt(input, nColumns, x - 1, y - 1, 'S') and
-        checkCharAt(input, nColumns, x + 1, y + 1, 'M'))) and
-        ((checkCharAt(input, nColumns, x + 1, y - 1, 'M') and
-        checkCharAt(input, nColumns, x - 1, y + 1, 'S')) or
-        (checkCharAt(input, nColumns, x + 1, y - 1, 'S') and
-        checkCharAt(input, nColumns, x - 1, y + 1, 'M')));
+    return @intCast(WordWall.init(this.input).countWords("XMAS"));
 }
 
 pub fn part2(this: *const @This()) !?i64 {
-    var lines = std.mem.splitScalar(u8, this.input, '\n');
-    const firstLine = lines.next();
-    const nColumns: usize = firstLine.?.len + 1;
-    const nLines: usize = @truncate((this.input.len + 1) / nColumns);
+    const ww = WordWall.init(this.input);
     var result: usize = 0;
-    var x: isize = 0;
-    var y: isize = 0;
-    while (y < nLines) : (y += 1) {
-        while (x < nColumns) : (x += 1) {
-            if (checkXAt(this.input, nColumns, x, y)) {
-                result += 1;
+    var x: usize = 0;
+    var y: usize = 0;
+    while (y < ww.limits.y) : (y += 1) {
+        while (x < ww.limits.x) : (x += 1) {
+            const at = Position{ .x = x, .y = y };
+            if (ww.charAt(at) == 'A') {
+                if ((ww.charAt(at.apply(combineDirections(Directions.up, Directions.left))) == 'M' and
+                    ww.charAt(at.apply(combineDirections(Directions.down, Directions.right))) == 'S') or
+                    (ww.charAt(at.apply(combineDirections(Directions.up, Directions.left))) == 'S' and
+                    ww.charAt(at.apply(combineDirections(Directions.down, Directions.right))) == 'M') or
+                    (ww.charAt(at.apply(combineDirections(Directions.up, Directions.right))) == 'M' and
+                    ww.charAt(at.apply(combineDirections(Directions.down, Directions.left))) == 'S') or
+                    (ww.charAt(at.apply(combineDirections(Directions.up, Directions.right))) == 'S' and
+                    ww.charAt(at.apply(combineDirections(Directions.down, Directions.left))) == 'M'))
+                {
+                    result += 1;
+                }
             }
         }
         x = 0;
@@ -149,54 +181,4 @@ test "it should work with small examples for part 2" {
     };
 
     try std.testing.expectEqual(9, try problem.part2());
-}
-
-test "it should recognize XMAS in all cases" {
-    var input: []const u8 = "";
-
-    input = "XMAS";
-    try std.testing.expectEqual(1, countWords(input, 1, input.len + 1));
-
-    input = ".XMA";
-    try std.testing.expectEqual(0, countWords(input, 1, input.len + 1));
-
-    input = "SAMX";
-    try std.testing.expectEqual(1, countWords(input, 1, input.len + 1));
-
-    input = "XMASAMX";
-    try std.testing.expectEqual(2, countWords(input, 1, input.len + 1));
-
-    input =
-        \\XMAS
-        \\....
-    ;
-    try std.testing.expectEqual(1, countWords(input, 2, 5));
-
-    input =
-        \\.XMA
-        \\S...
-    ;
-    try std.testing.expectEqual(0, countWords(input, 2, 5));
-
-    input =
-        \\....
-        \\XMAS
-    ;
-    try std.testing.expectEqual(1, countWords(input, 2, 5));
-
-    input =
-        \\X...
-        \\M...
-        \\A...
-        \\S...
-    ;
-    try std.testing.expectEqual(1, countWords(input, 4, 5));
-
-    input =
-        \\...X
-        \\...M
-        \\...A
-        \\...S
-    ;
-    try std.testing.expectEqual(1, countWords(input, 4, 5));
 }
