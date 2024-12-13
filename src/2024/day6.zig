@@ -30,24 +30,12 @@ const Direction = enum {
     down,
     left,
 
-    // TODO: use integer number assigned to the enum values
     fn turnRight(self: Direction) Direction {
-        return switch (self) {
-            Direction.up => Direction.right,
-            Direction.right => Direction.down,
-            Direction.down => Direction.left,
-            Direction.left => Direction.up,
-        };
+        return @enumFromInt((@intFromEnum(self) +% 1));
     }
 
-    // TODO: use integer number assigned to the enum values
     fn opposite(self: Direction) Direction {
-        return switch (self) {
-            Direction.up => Direction.down,
-            Direction.right => Direction.left,
-            Direction.down => Direction.up,
-            Direction.left => Direction.right,
-        };
+        return @enumFromInt((@intFromEnum(self) +% 2));
     }
 };
 
@@ -78,7 +66,7 @@ const PositionContext = std.hash_map.AutoContext(Position);
 const Positions = std.HashMap(Position, void, PositionContext, std.hash_map.default_max_load_percentage);
 
 const HistoryContext = std.hash_map.AutoContext(Guard);
-const History = std.HashMap(Guard, Guard, HistoryContext, std.hash_map.default_max_load_percentage);
+const History = std.HashMap(Guard, void, HistoryContext, std.hash_map.default_max_load_percentage);
 
 const Grid = struct {
     const Self = @This();
@@ -154,14 +142,12 @@ const Grid = struct {
         return visited.count();
     }
 
-    // TODO: doesn't work, it panics with incorrect alignment
-
     // NOTE: history must contain the current position of the guard
     fn hasLoop(self: Self, historySoFar: History, withObstacle: Position) !bool {
         var grid = try self.clone();
         defer grid.deinit();
         var history = try historySoFar.clone();
-        defer grid.deinit();
+        defer history.deinit();
 
         // add additional obstacle to the grid obstacles
         try grid.obstacles.put(withObstacle, undefined);
@@ -171,8 +157,6 @@ const Grid = struct {
             if (grid.obstacles.contains(grid.guard.position)) {
                 grid.guard.stepBackward();
                 grid.guard.turn();
-                try history.put(grid.guard, undefined);
-                continue;
             }
             if (!grid.guard.position.contained(grid.width, grid.heigh)) {
                 break;
@@ -186,31 +170,37 @@ const Grid = struct {
     }
 
     fn countPossibleLoops(self: *Self) !usize {
-        var loopCounter: usize = 0;
+        var additionalObstacles: Positions = Positions.init(self.allocator);
+        defer additionalObstacles.deinit();
+        var visited: Positions = Positions.init(self.allocator);
+        defer visited.deinit();
         var history: History = History.init(self.allocator);
         defer history.deinit();
 
+        try visited.put(self.guard.position, undefined);
         try history.put(self.guard, undefined);
         while (true) {
             // Check if an obstacle in front of the guard will cause a loop
             const inFrontOf = self.guard.position.stepWith(self.guard.direction);
-            if (try self.hasLoop(history, inFrontOf)) {
-                loopCounter += 1;
+            if (!visited.contains(inFrontOf) and
+                !additionalObstacles.contains(inFrontOf) and
+                try self.hasLoop(history, inFrontOf))
+            {
+                try additionalObstacles.put(inFrontOf, undefined);
             }
 
             self.guard.stepForward();
             if (self.obstacles.contains(self.guard.position)) {
                 self.guard.stepBackward();
                 self.guard.turn();
-                try history.put(self.guard, undefined);
-                continue;
             }
             if (!self.guard.position.contained(self.width, self.heigh)) {
                 break;
             }
+            try visited.put(self.guard.position, undefined);
             try history.put(self.guard, undefined);
         }
-        return loopCounter;
+        return additionalObstacles.count();
     }
 };
 
