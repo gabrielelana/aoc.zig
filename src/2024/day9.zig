@@ -11,6 +11,24 @@ pub fn part1(this: *const @This()) !?i64 {
     return @intCast(checksum(disk.items));
 }
 
+// TODO: too slow, needs improvement
+//
+// One priority queue with file clusters sorted by index, lowest first
+// One priority queue with free clusters sorted by index, highest first
+// List of file clusters as result
+//
+// Pick the first file cluster, search for first free cluster capable enough,
+// the index of the free cluster must be < than the index of the file cluster.
+
+// If not found, the file cluster stays there therefore put in the result list
+// as it is.
+//
+// If found, take out the free cluster, change the starting index of the file
+// cluster with the starting index of the free cluster, add it to the result
+// list, put back the remaining free space if any.
+//
+// Continue until there's no file clusters in the priority queue.
+
 pub fn part2(this: *const @This()) !?i64 {
     var disk = try parse(this.input, this.allocator);
     defer disk.deinit();
