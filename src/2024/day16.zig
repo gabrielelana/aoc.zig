@@ -7,35 +7,23 @@ allocator: mem.Allocator,
 const Move = struct { from: Reindeer, to: Reindeer, cost: usize };
 const State = struct { cost: usize, reindeer: Reindeer, parent: ?*State };
 
-const AlreadyVisited = std.HashMap(Position, State, std.hash_map.AutoContext(Position), std.hash_map.default_max_load_percentage);
-const ToVisit = std.PriorityQueue(State, void, compareState);
+const AlreadyVisited = std.HashMap(Position, void, std.hash_map.AutoContext(Position), std.hash_map.default_max_load_percentage);
+const AlreadyVisitedWithPosition = std.HashMap(Reindeer, void, std.hash_map.AutoContext(Reindeer), std.hash_map.default_max_load_percentage);
+const BestSpots = std.HashMap(Position, void, std.hash_map.AutoContext(Position), std.hash_map.default_max_load_percentage);
+const ToVisit = std.PriorityQueue(*State, void, compareState);
 
-fn compareState(_: void, l: State, r: State) std.math.Order {
+fn compareState(_: void, l: *State, r: *State) std.math.Order {
     if (l.cost < r.cost) return std.math.Order.lt;
     if (l.cost == r.cost) return std.math.Order.eq;
     return std.math.Order.gt;
 }
 
-fn debugPath(state: State, allocator: std.mem.Allocator) !void {
-    var stack: std.ArrayList(*const State) = std.ArrayList(*const State).init(allocator);
-    defer stack.deinit();
-
-    var current = &state;
-    try stack.append(current);
+fn pathUnion(state: *State, bestSpots: *BestSpots) !void {
+    var current = state;
+    try bestSpots.put(current.reindeer.position, undefined);
     while (current.parent) |parent| {
-        try stack.append(parent);
         current = parent;
-    }
-
-    var step: usize = 0;
-    while (stack.popOrNull()) |x| : (step += 1) {
-        std.debug.print("STEP({d}): AT({d},{d}) FACING({s}) COST({d})\n", .{
-            step,
-            x.reindeer.position.x,
-            x.reindeer.position.y,
-            x.reindeer.facing.name(),
-            x.cost,
-        });
+        try bestSpots.put(current.reindeer.position, undefined);
     }
 }
 
@@ -47,12 +35,17 @@ pub fn part1(this: *const @This()) !?i64 {
     defer toVisit.deinit();
 
     var alreadyVisited = AlreadyVisited.init(this.allocator);
-    // make sure the pointes we take are always legit
-    try alreadyVisited.ensureTotalCapacity(@intCast(maze.width * maze.height));
-    // alreadyVisited.lockPointers();
     defer alreadyVisited.deinit();
 
-    try toVisit.add(.{ .cost = 0, .reindeer = maze.reindeer, .parent = null });
+    var arena = std.heap.ArenaAllocator.init(this.allocator);
+    defer arena.deinit();
+    const stateAllocator = arena.allocator();
+
+    const firstState = try stateAllocator.create(State);
+    firstState.cost = 0;
+    firstState.reindeer = maze.reindeer;
+    firstState.parent = null;
+    try toVisit.add(firstState);
 
     // while there are a next state left to explore
     while (toVisit.count() > 0) {
@@ -65,7 +58,7 @@ pub fn part1(this: *const @This()) !?i64 {
         }
 
         // add the current position to the alreadyVisited list
-        try alreadyVisited.put(state.reindeer.position, state);
+        try alreadyVisited.put(state.reindeer.position, undefined);
 
         // for all the next moves as move
         const moves = try maze.possibleMovesFrom(state.reindeer, state.cost, this.allocator);
@@ -75,13 +68,12 @@ pub fn part1(this: *const @This()) !?i64 {
             // if the move is in visited then skip
             if (alreadyVisited.contains(move.to.position)) continue;
 
-            // calculate the state of the move
             // add the state in toVisit
-            try toVisit.add(.{
-                .cost = move.cost,
-                .reindeer = move.to,
-                .parent = alreadyVisited.getPtr(state.reindeer.position).?,
-            });
+            const nextState = try stateAllocator.create(State);
+            nextState.cost = move.cost;
+            nextState.reindeer = move.to;
+            nextState.parent = state;
+            try toVisit.add(nextState);
         }
     }
 
@@ -89,8 +81,64 @@ pub fn part1(this: *const @This()) !?i64 {
 }
 
 pub fn part2(this: *const @This()) !?i64 {
-    _ = this;
-    return null;
+    var maze = try Maze.parse(this.input, this.allocator);
+    defer maze.deinit();
+
+    var toVisit = ToVisit.init(this.allocator, undefined);
+    defer toVisit.deinit();
+
+    var alreadyVisited = AlreadyVisitedWithPosition.init(this.allocator);
+    defer alreadyVisited.deinit();
+
+    var arena = std.heap.ArenaAllocator.init(this.allocator);
+    defer arena.deinit();
+    const stateAllocator = arena.allocator();
+
+    var bestSpots = BestSpots.init(this.allocator);
+    defer bestSpots.deinit();
+
+    var bestPathCost: usize = std.math.maxInt(usize);
+
+    const firstState = try stateAllocator.create(State);
+    firstState.cost = 0;
+    firstState.reindeer = maze.reindeer;
+    firstState.parent = null;
+    try toVisit.add(firstState);
+
+    // while there are a next state left to explore
+    while (toVisit.count() > 0) {
+        // get the lowest cost state in toVisit
+        const state = toVisit.remove();
+
+        // if the state is the end we are done (return state.cost)
+        if (state.reindeer.position.x == maze.end.x and state.reindeer.position.y == maze.end.y) {
+            const cost = state.cost;
+            bestPathCost = @min(bestPathCost, cost);
+            if (cost <= bestPathCost) {
+                try pathUnion(state, &bestSpots);
+            }
+        }
+
+        // add the current position to the alreadyVisited list
+        try alreadyVisited.put(state.reindeer, undefined);
+
+        // for all the next moves as move
+        const moves = try maze.possibleMovesFrom(state.reindeer, state.cost, this.allocator);
+        defer this.allocator.free(moves);
+        for (moves) |move| {
+
+            // if the move is in visited then skip
+            if (alreadyVisited.contains(move.to)) continue;
+
+            const nextState = try stateAllocator.create(State);
+            nextState.cost = move.cost;
+            nextState.reindeer = move.to;
+            nextState.parent = state;
+            try toVisit.add(nextState);
+        }
+    }
+
+    return bestSpots.count();
 }
 
 const Position = struct { x: usize, y: usize };
@@ -221,11 +269,6 @@ const Maze = struct {
         };
     }
 
-    fn distance(from: Position, to: Position) usize {
-        return @abs(@as(isize, @intCast(from.x)) - @as(isize, @intCast(to.x))) +
-            @abs(@as(isize, @intCast(from.y)) - @as(isize, @intCast(to.y)));
-    }
-
     fn possibleMovesFrom(self: Self, reindeer: Reindeer, costSoFar: usize, allocator: std.mem.Allocator) ![]Move {
         var moves = std.ArrayList(Move).init(allocator);
         errdefer moves.deinit();
@@ -237,7 +280,6 @@ const Maze = struct {
                 try moves.append(Move{
                     .from = reindeer,
                     .to = next,
-                    // .cost = costSoFar + distance(reindeer.position, next.position) + (if (reindeer.facing != next.facing) @as(usize, 1_001) else @as(usize, 1)),
                     .cost = costSoFar + (if (reindeer.facing != next.facing) @as(usize, 1_001) else @as(usize, 1)),
                 });
             }
@@ -306,5 +348,37 @@ test "it should work with small example" {
     };
 
     try std.testing.expectEqual(7036, try problem.part1());
-    // try std.testing.expectEqual(null, try problem.part2());
+    try std.testing.expectEqual(45, try problem.part2());
+}
+
+test "it should work with another small example" {
+    const allocator = std.testing.allocator;
+    const input =
+        \\#################
+        \\#...#...#...#..E#
+        \\#.#.#.#.#.#.#.#.#
+        \\#.#.#.#...#...#.#
+        \\#.#.#.#.###.#.#.#
+        \\#...#.#.#.....#.#
+        \\#.#.#.#.#.#####.#
+        \\#.#...#.#.#.....#
+        \\#.#.#####.#.###.#
+        \\#.#.#.......#...#
+        \\#.#.###.#####.###
+        \\#.#.#...#.....#.#
+        \\#.#.#.#####.###.#
+        \\#.#.#.........#.#
+        \\#.#.#.#########.#
+        \\#S#.............#
+        \\#################
+        \\
+    ;
+
+    const problem: @This() = .{
+        .input = input,
+        .allocator = allocator,
+    };
+
+    try std.testing.expectEqual(11048, try problem.part1());
+    try std.testing.expectEqual(64, try problem.part2());
 }
